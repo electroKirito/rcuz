@@ -1,0 +1,50 @@
+{
+  "id": "test_room",
+  "weight": 1000,
+  "tags": ["stone"],
+  "minDistance": 0,
+  "maxDistance": -1,
+  "maxPerDimension": -1,
+  "mobSpawners": [],
+  "doors": [
+    {
+      "exit": true,
+      "entrance": true,
+      "id": 1,
+      "facing": "NORTH",
+      "doorType": "DEFAULT",
+      "localPos": {
+        "x": 11,
+        "y": 1,
+        "z": 0
+      },
+      "continuationBoostByTags": []
+    },
+    {
+      "exit": true,
+      "entrance": true,
+      "id": 2,
+      "facing": "WEST",
+      "doorType": "DEFAULT",
+      "localPos": {
+        "x": 0,
+        "y": 1,
+        "z": 7
+      },
+      "continuationBoostByTags": []
+    },
+    {
+      "exit": true,
+      "entrance": true,
+      "id": 3,
+      "facing": "SOUTH",
+      "doorType": "DEFAULT",
+      "localPos": {
+        "x": 7,
+        "y": 1,
+        "z": 18
+      },
+      "continuationBoostByTags": []
+    }
+  ]
+}

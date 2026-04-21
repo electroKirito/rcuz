@@ -1,0 +1,19 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "misc",
+  "ingredients": [
+    {
+      "fabric:type": "moonlight:block_type_swap",
+      "block_type": "wood_type",
+      "from": "minecraft:oak",
+      "to": "biomesoplenty:palm",
+      "ingredient": {
+        "item": "minecraft:oak_sign"
+      }
+    }
+  ],
+  "result": {
+    "item": "supplementaries:biomesoplenty/sign_post_palm",
+    "count": 2
+  }
+}

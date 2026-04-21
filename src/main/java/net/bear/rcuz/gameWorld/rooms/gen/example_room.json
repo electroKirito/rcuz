@@ -1,0 +1,73 @@
+{
+  "id": "room_id",
+  "weight": 1000,
+  "tags": ["stone", "amethist"],
+  "minDistance": 0,
+  "maxDistance": -1,
+  "maxPerDimension": -1,
+  "mobSpawners": [
+    {
+      "type": "FULL_CUSTOM",
+      "mobs": [
+        [
+          {
+            "entityId": "",
+            "entityNbt": ""
+          },
+          {
+            "entityId": "",
+            "entityNbt": ""
+          }
+        ],
+        [
+          {
+            "entityId": "",
+            "entityNbt": ""
+          }
+        ]
+      ]
+    },
+
+    {
+      "type": "PRESET",
+      "preset": "presetName"
+    }
+  ],
+  "doors": [
+
+    {
+      "exit": true,
+      "entrance": true,
+      "id": 1,
+      "dir": "EAST",
+      "doorType": "DEFAULT",
+      "local_pos": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "continuationBoostByTag": [
+        {"tag":  "amethist", "multiplayer":  0.2},
+        {"tag":  "stone", "multiplayer":  2.5}
+      ]
+    },
+
+    {
+      "exit": true,
+      "entrance": true,
+      "id": 2,
+      "dir": "NORTH",
+      "doorType": "DEFAULT",
+      "local_pos": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "continuationBoostByTag": [
+        {"tag":  "amethist", "multiplayer":  10},
+        {"tag":  "hell", "multiplayer":  0}
+      ]
+    }
+
+  ]
+}

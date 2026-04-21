@@ -1,0 +1,19 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "misc",
+  "ingredients": [
+    {
+      "fabric:type": "moonlight:block_type_swap",
+      "block_type": "wood_type",
+      "from": "minecraft:oak",
+      "to": "minecraft:cherry",
+      "ingredient": {
+        "item": "minecraft:oak_sign"
+      }
+    }
+  ],
+  "result": {
+    "item": "supplementaries:sign_post_cherry",
+    "count": 2
+  }
+}

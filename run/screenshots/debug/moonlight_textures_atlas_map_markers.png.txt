@@ -1,0 +1,4 @@
+moonlight:map_marker/dummy1	x=0	y=0	w=128	h=128
+moonlight:map_marker/dummy2	x=128	y=0	w=128	h=128
+moonlight:map_marker/generic_structure	x=16	y=128	w=8	h=8
+minecraft:missingno	x=0	y=128	w=16	h=16

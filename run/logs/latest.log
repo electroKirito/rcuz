@@ -1,0 +1,59 @@
+[06:48:17] [Server thread/WARN] (Minecraft) Can't keep up! Is the server overloaded? Running 26967687ms or 539353 ticks behind
+[06:48:20] [Render thread/INFO] (Minecraft) Audio device was lost!
+[06:48:20] [Render thread/WARN] (Minecraft) Missing sound for event: minecraft:item.goat_horn.play
+[06:48:20] [Render thread/WARN] (Minecraft) Missing sound for event: minecraft:entity.goat.screaming.horn_break
+[06:48:20] [Render thread/INFO] (Minecraft) OpenAL initialized on device OpenAL Soft on Динамики (FxSound Audio Enhancer)
+[06:48:20] [Render thread/INFO] (Minecraft) Sound engine started
+[06:48:20] [IO-Worker-29/INFO] (Minecraft) System default audio device has changed!
+[06:48:20] [Render thread/WARN] (Minecraft) Missing sound for event: minecraft:item.goat_horn.play
+[06:48:21] [Render thread/WARN] (Minecraft) Missing sound for event: minecraft:entity.goat.screaming.horn_break
+[06:48:21] [Render thread/INFO] (Minecraft) OpenAL initialized on device OpenAL Soft on Realtek Digital Output (Realtek High Definition Audio)
+[06:48:21] [Render thread/INFO] (Minecraft) Sound engine started
+[06:48:21] [IO-Worker-29/INFO] (Minecraft) System default audio device has changed!
+[06:48:21] [Render thread/WARN] (Minecraft) Missing sound for event: minecraft:item.goat_horn.play
+[06:48:21] [Render thread/WARN] (Minecraft) Missing sound for event: minecraft:entity.goat.screaming.horn_break
+[06:48:22] [Render thread/INFO] (Minecraft) OpenAL initialized on device OpenAL Soft on Динамики (FxSound Audio Enhancer)
+[06:48:22] [Render thread/INFO] (Minecraft) Sound engine started
+[06:49:22] [Server thread/INFO] (Minecraft) [Player553: Ваш режим игры изменён на Режим наблюдателя]
+[06:49:22] [Render thread/INFO] (Minecraft) [System] [CHAT] Ваш режим игры изменён на Режим наблюдателя
+[06:49:22] [Server thread/INFO] (Minecraft) [Player553: Ваш режим игры изменён на Творческий режим]
+[06:49:22] [Render thread/INFO] (Minecraft) [System] [CHAT] Ваш режим игры изменён на Творческий режим
+[06:49:50] [Server thread/INFO] (Minecraft) [Player553: Ваш режим игры изменён на Режим наблюдателя]
+[06:49:50] [Render thread/INFO] (Minecraft) [System] [CHAT] Ваш режим игры изменён на Режим наблюдателя
+[06:49:53] [Server thread/INFO] (Minecraft) [Player553: Ваш режим игры изменён на Творческий режим]
+[06:49:53] [Render thread/INFO] (Minecraft) [System] [CHAT] Ваш режим игры изменён на Творческий режим
+[06:49:59] [Server thread/INFO] (Minecraft) Saving and pausing game...
+[06:49:59] [Server thread/INFO] (Minecraft) Saving chunks for level 'ServerLevel[New World]'/minecraft:overworld
+[06:49:59] [Server thread/INFO] (Minecraft) Saving chunks for level 'ServerLevel[New World]'/minecraft:the_end
+[06:49:59] [Server thread/INFO] (Minecraft) Saving chunks for level 'ServerLevel[New World]'/rcuz:game_world
+[06:49:59] [Server thread/INFO] (Minecraft) Saving chunks for level 'ServerLevel[New World]'/minecraft:the_nether
+[06:49:59] [Server thread/INFO] (Minecraft) Saving chunks for level 'ServerLevel[New World]'/rcuz:rcuz_62743
+[06:53:01] [Server thread/INFO] (Minecraft) Saving and pausing game...
+[06:53:01] [Server thread/INFO] (Minecraft) Saving chunks for level 'ServerLevel[New World]'/minecraft:overworld
+[06:53:01] [Server thread/INFO] (Minecraft) Saving chunks for level 'ServerLevel[New World]'/minecraft:the_end
+[06:53:01] [Server thread/INFO] (Minecraft) Saving chunks for level 'ServerLevel[New World]'/rcuz:game_world
+[06:53:01] [Server thread/INFO] (Minecraft) Saving chunks for level 'ServerLevel[New World]'/minecraft:the_nether
+[06:53:01] [Server thread/INFO] (Minecraft) Saving chunks for level 'ServerLevel[New World]'/rcuz:rcuz_62743
+[07:01:08] [Server thread/INFO] (Minecraft) Player553 lost connection: Отключение
+[07:01:08] [Server thread/INFO] (Minecraft) Player553 покинул игру
+[07:01:09] [Server thread/INFO] (Minecraft) Stopping singleplayer server as player logged out
+[07:01:09] [Server thread/INFO] (Minecraft) Stopping server
+[07:01:09] [Server thread/INFO] (Minecraft) Saving players
+[07:01:09] [Server thread/INFO] (Minecraft) Saving worlds
+[07:01:12] [Server thread/INFO] (Minecraft) Saving chunks for level 'ServerLevel[New World]'/minecraft:overworld
+[07:01:12] [Server thread/INFO] (Minecraft) Saving chunks for level 'ServerLevel[New World]'/minecraft:the_end
+[07:01:12] [Server thread/INFO] (Minecraft) Saving chunks for level 'ServerLevel[New World]'/rcuz:game_world
+[07:01:12] [Server thread/INFO] (Minecraft) Saving chunks for level 'ServerLevel[New World]'/minecraft:the_nether
+[07:01:12] [Server thread/INFO] (Minecraft) Saving chunks for level 'ServerLevel[New World]'/rcuz:rcuz_62743
+[07:01:12] [Server thread/INFO] (Minecraft) ThreadedAnvilChunkStorage (New World): All chunks are saved
+[07:01:12] [Server thread/INFO] (Minecraft) ThreadedAnvilChunkStorage (DIM1): All chunks are saved
+[07:01:12] [Server thread/INFO] (Minecraft) ThreadedAnvilChunkStorage (game_world): All chunks are saved
+[07:01:12] [Server thread/INFO] (Minecraft) ThreadedAnvilChunkStorage (DIM-1): All chunks are saved
+[07:01:12] [Server thread/INFO] (Minecraft) ThreadedAnvilChunkStorage (rcuz_62743): All chunks are saved
+[07:01:12] [Server thread/INFO] (Minecraft) ThreadedAnvilChunkStorage: All dimensions are saved
+[07:01:12] [Render thread/INFO] (ChunkBuilder) Stopping worker threads
+[07:01:13] [Render thread/WARN] (Mod Menu | FabricMod) Warning! Mod coroutil has a broken icon, loading default icon
+[07:01:13] [Render thread/WARN] (Mod Menu | FabricMod) Warning! Mod lootjs has a broken icon, loading default icon
+[07:01:13] [Render thread/WARN] (Mod Menu | FabricMod) Warning! Mod mobtimizations has a broken icon, loading default icon
+[07:01:15] [Render thread/INFO] (Minecraft) Stopping!
+[07:01:15] [Render thread/INFO] (axiom) Saving configuration (client stopping)...
