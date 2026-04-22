@@ -4,13 +4,16 @@ import net.bear.rcuz.RCUZ;
 import net.bear.rcuz.gameWorld.ConfigStructureLoader;
 import net.bear.rcuz.gameWorld.rooms.model.*;
 import net.minecraft.block.Block;
+import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
+import net.minecraft.registry.Registries;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.structure.StructurePlacementData;
 import net.minecraft.structure.StructureTemplate;
 import net.minecraft.util.BlockMirror;
 import net.minecraft.util.BlockRotation;
+import net.minecraft.util.Identifier;
 import net.minecraft.util.math.*;
 import net.minecraft.util.math.random.Random;
 
@@ -74,9 +77,9 @@ public class RoomGenerator {
         placedRooms.add(lobby);
         indexPlacedRoomBounds(computeBounds(origin, templateSize, BlockRotation.NONE));
 
-        frontier.add(new OpenSocket(origin.add(0, 1, 15), Dir.WEST, new ArrayList<>()));
-        frontier.add(new OpenSocket(origin.add(25, 1, 0), Dir.NORTH, new ArrayList<>()));
-        frontier.add(new OpenSocket(origin.add(32, 8, 3), Dir.EAST, new ArrayList<>()));
+        frontier.add(new OpenSocket(origin.add(0, 1, 15), Dir.WEST, true, new ArrayList<>()));
+        frontier.add(new OpenSocket(origin.add(25, 1, 0), Dir.NORTH, true, new ArrayList<>()));
+        frontier.add(new OpenSocket(origin.add(32, 8, 3), Dir.EAST, true, new ArrayList<>()));
     }
 
     public void start() {
@@ -104,6 +107,12 @@ public class RoomGenerator {
 
             candidates.remove(room);
         }
+
+        if (tryConnectToNearbySocket(socket)) {
+            return true;
+        }
+
+        sealSocketWithBricks(socket);
         return false;
     }
 
@@ -125,130 +134,53 @@ public class RoomGenerator {
             return true;
         }
 
-        if (tryConnectToNearbySocket(socket)) {
-            return true;
-        }
-        sealSocketWithBricks(socket);
         return false;
     }
-
     private boolean tryConnectToNearbySocket(OpenSocket source) {
-        OpenSocket target = scanForwardForTarget(source);
+        OpenSocket target = findNearestOppositeEntranceSocket(source);
         if (target == null) {
             return false;
         }
 
-        BlockPos from = source.worldPos().offset(toDirection(source.facing()));
-        BlockPos to = target.worldPos().offset(toDirection(target.facing()));
+        BlockPos start = source.worldPos().offset(toDirection(source.facing()));
+        BlockPos goal = target.worldPos().offset(toDirection(target.facing()));
 
-        carveNoisyTunnel(from, to);
+        List<BlockPos> path = findPath(start, goal);
+        if (path == null || path.isEmpty()) {
+            return false;
+        }
+
+        carvePath(path);
 
         frontier.remove(target);
         return true;
     }
 
-    private void carveNoisyTunnel(BlockPos from, BlockPos to) {
-        int dx = to.getX() - from.getX();
-        int dy = to.getY() - from.getY();
-        int dz = to.getZ() - from.getZ();
+    private OpenSocket findNearestOppositeEntranceSocket(OpenSocket source) {
+        Dir requiredFacing = opposite(source.facing());
+        int maxSqDistance = CONNECT_MAX_FORWARD * CONNECT_MAX_FORWARD;
 
-        int steps = Math.max(Math.abs(dx), Math.max(Math.abs(dy), Math.abs(dz)));
-        if (steps == 0) return;
-
-        for (int i = 0; i <= steps; i++) {
-            double t = (double) i / (double) steps;
-
-            int cx = (int) Math.round(from.getX() + dx * t);
-            int cy = (int) Math.round(from.getY() + dy * t);
-            int cz = (int) Math.round(from.getZ() + dz * t);
-
-            carveNoisySection(new BlockPos(cx, cy, cz));
-        }
-    }
-
-    private void carveNoisySection(BlockPos center) {
-        for (int ox = -TUNNEL_RX; ox <= TUNNEL_RX; ox++) {
-            for (int oy = -TUNNEL_RY; oy <= TUNNEL_RY; oy++) {
-                for (int oz = -TUNNEL_RZ; oz <= TUNNEL_RZ; oz++) {
-
-                    double nx = (double) ox / TUNNEL_RX;
-                    double ny = (double) oy / TUNNEL_RY;
-                    double nz = (double) oz / TUNNEL_RZ;
-                    double dist = nx * nx + ny * ny + nz * nz;
-
-                    BlockPos p = center.add(ox, oy, oz);
-                    double noise = noise01(p.getX(), p.getY(), p.getZ()); // 0..1
-                    double threshold = 1.0 + (noise - 0.5) * 0.45;        // неровности
-
-                    if (dist <= threshold) {
-                        world.setBlockState(p, Blocks.CAVE_AIR.getDefaultState());
-                    } else if (dist <= threshold + 0.20) {
-                        // тонкая каменная "стенка" рядом с вырезом
-                        if (world.getBlockState(p).isAir()) {
-                            world.setBlockState(p, Blocks.STONE.getDefaultState());
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private double noise01(int x, int y, int z) {
-        long h = 1469598103934665603L;
-        h ^= x * 0x9E3779B185EBCA87L;
-        h ^= y * 0xC2B2AE3D27D4EB4FL;
-        h ^= z * 0x165667B19E3779F9L;
-        h ^= (h >>> 33);
-        h *= 0xff51afd7ed558ccdL;
-        h ^= (h >>> 33);
-        h *= 0xc4ceb9fe1a85ec53L;
-        h ^= (h >>> 33);
-
-        long v = h & 0x7fffffffffffffffL;
-        return (double) v / (double) Long.MAX_VALUE;
-    }
-
-    private OpenSocket scanForwardForTarget(OpenSocket source) {
-        Direction direction = toDirection(source.facing());
-        Dir opositeFacing = opposite(source.facing());
-
-        for (int forward = 1; forward <= CONNECT_MAX_FORWARD; forward++) {
-            BlockPos center = source.worldPos().offset(direction, forward);
-
-            OpenSocket found = findSocketInSection(center, source, opositeFacing);
-            if (found != null) return found; ///Найдена дверь
-            if (isScanSectionAir(center, direction)) return null; ///Не пусто :<
-
-
-        }
-
-        return null;
-    }
-
-    private OpenSocket findSocketInSection(BlockPos center, OpenSocket source, Dir requiredFacing) {
-        Direction forwardDir = toDirection(source.facing());
         OpenSocket best = null;
-
-        int bestScore = Integer.MAX_VALUE;
+        int bestSqDist = Integer.MAX_VALUE;
 
         for (OpenSocket candidate : frontier) {
-            if (candidate.facing() != requiredFacing) continue;
+            if (!candidate.entrance()) {
+                continue;
+            }
+            if (candidate.facing() != requiredFacing) {
+                continue;
+            }
 
-            BlockPos pos = candidate.worldPos();
-            int dx = pos.getX() - center.getX();
-            int dy = pos.getY() - center.getY();
-            int dz = pos.getZ() - center.getZ();
+            int dx = candidate.worldPos().getX() - source.worldPos().getX();
+            int dy = candidate.worldPos().getY() - source.worldPos().getY();
+            int dz = candidate.worldPos().getZ() - source.worldPos().getZ();
+            int sqDist = dx * dx + dy * dy + dz * dz;
 
-            if (Math.abs(dy) > CONNECT_SEARCH_V) continue;
-            if (Math.abs(dx) > CONNECT_SEARCH_H || Math.abs(dz) > CONNECT_SEARCH_H) continue;
-
-            int score = Math.abs(dx) + Math.abs(dy) + Math.abs(dz);
-
-            int globalForward = projectForward(source.worldPos(), pos, forwardDir);
-            if (globalForward <= 0) continue;
-
-            if (score < bestScore) {
-                bestScore = score;
+            if (sqDist > maxSqDistance) {
+                continue;
+            }
+            if (sqDist < bestSqDist) {
+                bestSqDist = sqDist;
                 best = candidate;
             }
         }
@@ -256,43 +188,134 @@ public class RoomGenerator {
         return best;
     }
 
-    private int projectForward(BlockPos from, BlockPos to, Direction forwardDir) {
-        int dx = to.getX() - from.getX();
-        int dz = to.getZ() - from.getZ();
+    private List<BlockPos> findPath(BlockPos start, BlockPos goal) {
+        int minX = Math.min(start.getX(), goal.getX()) - CONNECT_SEARCH_H;
+        int maxX = Math.max(start.getX(), goal.getX()) + CONNECT_SEARCH_H;
+        int minY = Math.min(start.getY(), goal.getY()) - CONNECT_SEARCH_V;
+        int maxY = Math.max(start.getY(), goal.getY()) + CONNECT_SEARCH_V;
+        int minZ = Math.min(start.getZ(), goal.getZ()) - CONNECT_SEARCH_H;
+        int maxZ = Math.max(start.getZ(), goal.getZ()) + CONNECT_SEARCH_H;
 
-        return switch (forwardDir) {
-            case EAST -> dx;
-            case WEST -> -dx;
-            case SOUTH -> dz;
-            case NORTH -> -dz;
-            default -> 0;
+        ArrayDeque<BlockPos> queue = new ArrayDeque<>();
+        Map<BlockPos, BlockPos> parent = new HashMap<>();
+        Set<BlockPos> visited = new HashSet<>();
+
+        BlockPos startImm = start.toImmutable();
+        BlockPos goalImm = goal.toImmutable();
+
+        queue.add(startImm);
+        visited.add(startImm);
+
+        Direction[] dirs = new Direction[]{
+                Direction.EAST,
+                Direction.WEST,
+                Direction.SOUTH,
+                Direction.NORTH,
+                Direction.UP,
+                Direction.DOWN
         };
+
+        while (!queue.isEmpty()) {
+            BlockPos cur = queue.pollFirst();
+            if (cur.equals(goalImm)) {
+                return reconstructPath(parent, goalImm);
+            }
+
+            for (Direction dir : dirs) {
+                BlockPos next = cur.offset(dir).toImmutable();
+                if (visited.contains(next)) {
+                    continue;
+                }
+                if (!canPathStep(next, startImm, goalImm, minX, maxX, minY, maxY, minZ, maxZ)) {
+                    continue;
+                }
+
+                visited.add(next);
+                parent.put(next, cur);
+                queue.addLast(next);
+            }
+        }
+
+        return null;
     }
 
-    private boolean isScanSectionAir(BlockPos center, Direction forwardDir) {
-        if (forwardDir == Direction.EAST || forwardDir == Direction.WEST) {
-            /// Плоскость Y-Z, X фиксирован
-            int x = center.getX();
-            for (int dy = -CONNECT_SEARCH_V; dy <= CONNECT_SEARCH_V; dy++) {
-                for (int dz = -CONNECT_SEARCH_H; dz <= CONNECT_SEARCH_H; dz++) {
-                    BlockPos p = new BlockPos(x, center.getY() + dy, center.getZ() + dz);
-                    if (!world.getBlockState(p).isAir()) return false;
-                }
-            }
-        } else {
-            /// Плоскость Y-X, Z фиксирован
-            int z = center.getZ();
-            for (int dy = -CONNECT_SEARCH_V; dy <= CONNECT_SEARCH_V; dy++) {
-                for (int dx = -CONNECT_SEARCH_H; dx <= CONNECT_SEARCH_H; dx++) {
-                    BlockPos p = new BlockPos(center.getX() + dx, center.getY() + dy, z);
-                    if (!world.getBlockState(p).isAir()) return false;
+    private List<BlockPos> reconstructPath(Map<BlockPos, BlockPos> parent, BlockPos goal) {
+        LinkedList<BlockPos> path = new LinkedList<>();
+        BlockPos cur = goal;
+        path.addFirst(cur);
+        while (parent.containsKey(cur)) {
+            cur = parent.get(cur);
+            path.addFirst(cur);
+        }
+        return path;
+    }
+
+    private boolean canPathStep(
+            BlockPos center,
+            BlockPos start,
+            BlockPos goal,
+            int minX, int maxX,
+            int minY, int maxY,
+            int minZ, int maxZ
+    ) {
+        if (center.getX() < minX || center.getX() > maxX) return false;
+        if (center.getY() < minY || center.getY() > maxY) return false;
+        if (center.getZ() < minZ || center.getZ() > maxZ) return false;
+
+        if (center.equals(start) || center.equals(goal)) {
+            return true;
+        }
+
+        Bounds3i clearance = corridorBounds(center);
+        if (intersectsPlacedRooms(clearance)) {
+            return false;
+        }
+
+        for (int x = clearance.minX; x <= clearance.maxX; x++) {
+            for (int y = clearance.minY; y <= clearance.maxY; y++) {
+                for (int z = clearance.minZ; z <= clearance.maxZ; z++) {
+                    if (!world.getBlockState(new BlockPos(x, y, z)).isAir()) {
+                        return false;
+                    }
                 }
             }
         }
+
         return true;
     }
 
+    private Bounds3i corridorBounds(BlockPos center) {
+        return new Bounds3i(
+                center.getX() - 1,
+                center.getY(),
+                center.getZ() - 1,
+                center.getX() + 1,
+                center.getY() + 3,
+                center.getZ() + 1
+        );
+    }
 
+    private void carvePath(List<BlockPos> path) {
+        for (BlockPos center : path) {
+            carveCorridorSection(center);
+        }
+    }
+
+    private void carveCorridorSection(BlockPos center) {
+        for (int ox = -1; ox <= 1; ox++) {
+            for (int oy = 0; oy <= 3; oy++) {
+                for (int oz = -1; oz <= 1; oz++) {
+                    BlockPos p = center.add(ox, oy, oz);
+                    boolean core = (ox == 0 && oz == 0 && oy <= 1);
+                    if (core) {
+                        world.setBlockState(p, Blocks.CAVE_AIR.getDefaultState(), 2);
+                    } else if (world.getBlockState(p).isAir()) {
+                        world.setBlockState(p, Blocks.STONE.getDefaultState(), 2);
+                    }
+                }
+            }
+        }
+    }
     private void placeRoom(
             RoomTemplate roomTemplate,
             StructureTemplate template,
@@ -301,6 +324,7 @@ public class RoomGenerator {
             BlockRotation rotation
     ) {
         Vec3i templateSize = template.getSize();
+        Bounds3i bounds = computeBounds(origin, templateSize, rotation);
 
         StructurePlacementData placementData = new StructurePlacementData()
                 .setMirror(BlockMirror.NONE)
@@ -308,6 +332,7 @@ public class RoomGenerator {
                 .setIgnoreEntities(false);
 
         template.place(world, origin, origin, placementData, world.getRandom(), 2);
+        applyTemplateReplacements(roomTemplate, bounds);
 
         PlacedRoom placed = new PlacedRoom(
                 roomTemplate.id(),
@@ -318,7 +343,7 @@ public class RoomGenerator {
         );
 
         placedRooms.add(placed);
-        indexPlacedRoomBounds(computeBounds(origin, templateSize, rotation));
+        indexPlacedRoomBounds(bounds);
 
         addNewSocketsFromPlacedRoom(
                 roomTemplate,
@@ -328,6 +353,68 @@ public class RoomGenerator {
                 templateSize.getX(),
                 templateSize.getZ()
         );
+    }
+
+    private void applyTemplateReplacements(RoomTemplate roomTemplate, Bounds3i bounds) {
+        List<ReplaceRule> rules = roomTemplate.replacements();
+        if (rules == null || rules.isEmpty()) {
+            return;
+        }
+
+        List<ResolvedReplaceRule> resolvedRules = new ArrayList<>();
+        for (ReplaceRule rule : rules) {
+            if (rule == null) {
+                continue;
+            }
+
+            Identifier fromId = rule.from();
+            Identifier toId = rule.to();
+            if (fromId == null || toId == null) {
+                continue;
+            }
+
+            if (!Registries.BLOCK.containsId(fromId) || !Registries.BLOCK.containsId(toId)) {
+                RCUZ.LOGGER.warn("Skip replacement rule in room '{}': unknown block id from='{}' to='{}'",
+                        roomTemplate.id(), fromId, toId);
+                continue;
+            }
+
+            float chance = MathHelper.clamp(rule.chance(), 0.0F, 1.0F);
+            if (chance <= 0.0F) {
+                continue;
+            }
+
+            Block fromBlock = Registries.BLOCK.get(fromId);
+            Block toBlock = Registries.BLOCK.get(toId);
+            resolvedRules.add(new ResolvedReplaceRule(fromBlock, toBlock, chance));
+        }
+
+        if (resolvedRules.isEmpty()) {
+            return;
+        }
+
+        for (int x = bounds.minX; x <= bounds.maxX; x++) {
+            for (int y = bounds.minY; y <= bounds.maxY; y++) {
+                for (int z = bounds.minZ; z <= bounds.maxZ; z++) {
+                    BlockPos pos = new BlockPos(x, y, z);
+                    BlockState currentState = world.getBlockState(pos);
+                    Block currentBlock = currentState.getBlock();
+
+                    for (ResolvedReplaceRule rule : resolvedRules) {
+                        if (currentBlock != rule.fromBlock()) {
+                            continue;
+                        }
+
+                        if (rule.chance() < 1.0F && random.nextFloat() >= rule.chance()) {
+                            continue;
+                        }
+
+                        world.setBlockState(pos, rule.toBlock().getDefaultState(), 2);
+                        break;
+                    }
+                }
+            }
+        }
     }
 
     private boolean canPlaceRoomAt(StructureTemplate template, BlockPos origin, BlockRotation rotation) {
@@ -628,6 +715,7 @@ public class RoomGenerator {
             frontier.addLast(new OpenSocket(
                     doorWorldPos,
                     doorWorldFacing,
+                    door.entrance(),
                     door.continuationBoostByTags()
             ));
         }
@@ -744,6 +832,7 @@ public class RoomGenerator {
     }
 
     private record Bounds3i(int minX, int minY, int minZ, int maxX, int maxY, int maxZ) {}
+    private record ResolvedReplaceRule(Block fromBlock, Block toBlock, float chance) {}
     private record Placement(BlockPos origin, BlockRotation rotation) {}
 
     private Placement computePlacement(OpenSocket socket, DoorSocket entrance) {
@@ -759,3 +848,4 @@ public class RoomGenerator {
         return new Placement(origin, rotation);
     }
 }
+
