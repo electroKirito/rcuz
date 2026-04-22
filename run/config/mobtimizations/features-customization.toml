@@ -1,3 +1,4 @@
+
 #General mod settings
 [general]
 	#Delay in ticks between allowed mob wander pathfinds
@@ -24,3 +25,4 @@
 	#In addition to the timed delay, an additional percent chance to run for task: mob wander pathfinding
 	#Range: > 0
 	mobWanderingPercentChance = 100
+

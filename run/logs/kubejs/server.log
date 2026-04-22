@@ -1,11 +1,11 @@
-[23:11:05] [INIT] KubeJS 2001.6.5-build.16; MC 2001 fabric
-[23:11:05] [INIT] Loaded plugins:
-[23:11:05] [INIT] - dev.latvian.mods.kubejs.fabric.BuiltinKubeJSFabricPlugin
-[23:11:05] [INIT] - dev.latvian.mods.kubejs.fabric.BuiltinKubeJSFabricClientPlugin
-[23:11:05] [INIT] - com.almostreliable.lootjs.kube.LootJSPlugin
-[23:11:05] [INIT] - com.probejs.ProbeJSPlugin
-[23:11:05] [INFO] example.js#5: Hello, World! (Loaded server scripts)
-[23:11:05] [INFO] Loaded script server_scripts:example.js in 0.001 s
-[23:11:05] [INFO] Loaded 1/1 KubeJS server scripts in 0.008 s with 0 errors and 0 warnings
-[23:11:05] [INFO] Scripts loaded
-[23:11:07] [INFO] Server resource reload complete!
+[00:44:09] [INIT] KubeJS 2001.6.5-build.16; MC 2001 fabric
+[00:44:09] [INIT] Loaded plugins:
+[00:44:09] [INIT] - dev.latvian.mods.kubejs.fabric.BuiltinKubeJSFabricPlugin
+[00:44:09] [INIT] - dev.latvian.mods.kubejs.fabric.BuiltinKubeJSFabricClientPlugin
+[00:44:09] [INIT] - com.almostreliable.lootjs.kube.LootJSPlugin
+[00:44:09] [INIT] - com.probejs.ProbeJSPlugin
+[00:44:09] [INFO] example.js#5: Hello, World! (Loaded server scripts)
+[00:44:09] [INFO] Loaded script server_scripts:example.js in 0.0 s
+[00:44:09] [INFO] Loaded 1/1 KubeJS server scripts in 0.008 s with 0 errors and 0 warnings
+[00:44:09] [INFO] Scripts loaded
+[00:44:11] [INFO] Server resource reload complete!

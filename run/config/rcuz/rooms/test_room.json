@@ -6,6 +6,11 @@
   "maxDistance": -1,
   "maxPerDimension": -1,
   "mobSpawners": [],
+  "replacements": [
+    {"form":  "minecraft:cobblestone", "to":  "minecraft:mossy_cobblestone",
+      "chance": 0.2
+    }
+  ],
   "doors": [
     {
       "exit": true,

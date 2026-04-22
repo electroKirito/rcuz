@@ -47,6 +47,7 @@ public class GameWorld {
         logCount = 0;
         this.setDisplayName(name);
         this.placeLobby();
+        gameWorldList.add(this);
     }
 
     private void createWorld() {
@@ -65,8 +66,6 @@ public class GameWorld {
         try {
             world = worldHandle.asWorld();
             RCUZ.LOGGER.info("after asWorld");
-            gameWorldList.add(this);
-            RCUZ.LOGGER.info("after add");
 
         } catch (Throwable e) {
             RCUZ.LOGGER.error("createWorld failed", e);

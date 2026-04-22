@@ -9,6 +9,7 @@ import net.minecraft.block.Blocks;
 import net.minecraft.registry.Registries;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
+import net.minecraft.state.property.Properties;
 import net.minecraft.structure.StructurePlacementData;
 import net.minecraft.structure.StructureTemplate;
 import net.minecraft.util.BlockMirror;
@@ -95,6 +96,15 @@ public class RoomGenerator {
     private boolean tryGenerateAtSocket(OpenSocket socket) {
         List<RoomTemplate> candidates = new ArrayList<>(templatesById.values());
 
+        if (tryResolveAdjacentSocket(socket)) {
+            return true;
+        }
+
+        if (Math.random() < 0.05)
+            if (tryConnectToNearbySocket(socket)) {
+                return true;
+            }
+
         int roomTryes = 0;
         while (!candidates.isEmpty() && roomTryes < MAX_ROOMS_TO_TRY_PER_SOCKET) {
             roomTryes++;
@@ -137,6 +147,14 @@ public class RoomGenerator {
         return false;
     }
     private boolean tryConnectToNearbySocket(OpenSocket source) {
+        OpenSocket adjacent = findAdjacentOppositeSocket(source);
+        if (adjacent != null) {
+            openTunnelMouth(source);
+            openTunnelMouth(adjacent);
+            frontier.remove(adjacent);
+            return true;
+        }
+
         OpenSocket target = findNearestOppositeEntranceSocket(source);
         if (target == null) {
             return false;
@@ -151,9 +169,39 @@ public class RoomGenerator {
         }
 
         carvePath(path);
+        openTunnelMouth(source);
+        openTunnelMouth(target);
+        placeLaddersAlongPath(path, source.facing());
 
         frontier.remove(target);
         return true;
+    }
+
+    private boolean tryResolveAdjacentSocket(OpenSocket source) {
+        OpenSocket adjacent = findAdjacentOppositeSocket(source);
+        if (adjacent == null) {
+            return false;
+        }
+        openTunnelMouth(source);
+        openTunnelMouth(adjacent);
+        frontier.remove(adjacent);
+        return true;
+    }
+
+    private OpenSocket findAdjacentOppositeSocket(OpenSocket source) {
+        BlockPos expected = source.worldPos().offset(toDirection(source.facing()));
+        Dir requiredFacing = opposite(source.facing());
+
+        for (OpenSocket candidate : frontier) {
+            if (candidate.facing() != requiredFacing) {
+                continue;
+            }
+            if (!candidate.worldPos().equals(expected)) {
+                continue;
+            }
+            return candidate;
+        }
+        return null;
     }
 
     private OpenSocket findNearestOppositeEntranceSocket(OpenSocket source) {
@@ -287,34 +335,187 @@ public class RoomGenerator {
     private Bounds3i corridorBounds(BlockPos center) {
         return new Bounds3i(
                 center.getX() - 1,
-                center.getY(),
+                center.getY() - 1,
                 center.getZ() - 1,
                 center.getX() + 1,
-                center.getY() + 3,
+                center.getY() + 2,
                 center.getZ() + 1
         );
     }
 
     private void carvePath(List<BlockPos> path) {
+        Set<BlockPos> core = new HashSet<>();
+        Set<BlockPos> shell = new HashSet<>();
+
         for (BlockPos center : path) {
-            carveCorridorSection(center);
+            collectCorridorSection(center, core, shell);
+        }
+
+        shell.removeAll(core);
+
+        for (BlockPos p : shell) {
+            if (world.getBlockState(p).isAir()) {
+                world.setBlockState(p, Blocks.STONE.getDefaultState(), 2);
+            }
+        }
+
+        for (BlockPos p : core) {
+            world.setBlockState(p, Blocks.AIR.getDefaultState(), 2);
         }
     }
 
-    private void carveCorridorSection(BlockPos center) {
+    private void collectCorridorSection(BlockPos center, Set<BlockPos> core, Set<BlockPos> shell) {
         for (int ox = -1; ox <= 1; ox++) {
-            for (int oy = 0; oy <= 3; oy++) {
+            for (int oy = -1; oy <= 2; oy++) {
                 for (int oz = -1; oz <= 1; oz++) {
-                    BlockPos p = center.add(ox, oy, oz);
-                    boolean core = (ox == 0 && oz == 0 && oy <= 1);
-                    if (core) {
-                        world.setBlockState(p, Blocks.CAVE_AIR.getDefaultState(), 2);
-                    } else if (world.getBlockState(p).isAir()) {
-                        world.setBlockState(p, Blocks.STONE.getDefaultState(), 2);
-                    }
+                    BlockPos p = center.add(ox, oy, oz).toImmutable();
+                    boolean isCore = (ox == 0 && oz == 0 && oy >= 0 && oy <= 1);
+                    if (isCore) core.add(p);
+                    else shell.add(p);
                 }
             }
         }
+    }
+
+    private void openTunnelMouth(OpenSocket socket) {
+        Direction dir = toDirection(socket.facing());
+        BlockPos p0 = socket.worldPos();
+        BlockPos p1 = p0.up();
+        BlockPos p2 = p0.offset(dir);
+        BlockPos p3 = p2.up();
+
+        world.setBlockState(p0, Blocks.AIR.getDefaultState(), 2);
+        world.setBlockState(p1, Blocks.AIR.getDefaultState(), 2);
+        world.setBlockState(p2, Blocks.AIR.getDefaultState(), 2);
+        world.setBlockState(p3, Blocks.AIR.getDefaultState(), 2);
+    }
+
+    private void placeLaddersAlongPath(List<BlockPos> path, Dir fallbackFacing) {
+        if (path == null || path.size() < 2) {
+            return;
+        }
+
+        for (int i = 1; i < path.size(); i++) {
+            BlockPos prev = path.get(i - 1);
+            BlockPos cur = path.get(i);
+
+            if (prev.getX() != cur.getX() || prev.getZ() != cur.getZ()) {
+                continue;
+            }
+            if (prev.getY() == cur.getY()) {
+                continue;
+            }
+
+            placeLadderColumn(path, i, fallbackFacing);
+        }
+    }
+
+    private void placeLadderColumn(List<BlockPos> path, int verticalStepIndex, Dir fallbackFacing) {
+        BlockPos a = path.get(verticalStepIndex - 1);
+        BlockPos b = path.get(verticalStepIndex);
+
+        int x = a.getX();
+        int z = a.getZ();
+        int minY = Math.min(a.getY(), b.getY());
+        int maxY = Math.max(a.getY(), b.getY()) + 1;
+
+        Direction lockedFacing = null;
+
+        for (int y = minY; y <= maxY; y++) {
+            BlockPos ladderPos = new BlockPos(x, y, z);
+            if (lockedFacing != null) {
+                placeSingleLadder(ladderPos, lockedFacing);
+                continue;
+            }
+
+            Direction candidateFacing = chooseLadderFacing(path, verticalStepIndex, fallbackFacing, x, z, y);
+            if (placeSingleLadder(ladderPos, candidateFacing)) {
+                lockedFacing = candidateFacing;
+            }
+        }
+    }
+
+    private Direction chooseLadderFacing(
+            List<BlockPos> path,
+            int verticalStepIndex,
+            Dir fallbackFacing,
+            int x,
+            int z,
+            int yForCheck
+    ) {
+        LinkedHashSet<Direction> priorities = new LinkedHashSet<>();
+
+        Direction aroundBefore = null;
+        if (verticalStepIndex >= 2) {
+            aroundBefore = horizontalDir(path.get(verticalStepIndex - 2), path.get(verticalStepIndex - 1));
+        }
+        Direction aroundAfter = null;
+        if (verticalStepIndex + 1 < path.size()) {
+            aroundAfter = horizontalDir(path.get(verticalStepIndex), path.get(verticalStepIndex + 1));
+        }
+
+        if (aroundBefore != null) priorities.add(aroundBefore);
+        if (aroundAfter != null) priorities.add(aroundAfter);
+
+        Direction fallback = toDirection(fallbackFacing);
+        priorities.add(fallback);
+        priorities.add(fallback.getOpposite());
+        priorities.add(Direction.NORTH);
+        priorities.add(Direction.SOUTH);
+        priorities.add(Direction.WEST);
+        priorities.add(Direction.EAST);
+
+        BlockPos probe = new BlockPos(x, yForCheck, z);
+        for (Direction dir : priorities) {
+            if (!dir.getAxis().isHorizontal()) {
+                continue;
+            }
+            if (hasLadderSupport(probe, dir)) {
+                return dir;
+            }
+        }
+
+        return fallback;
+    }
+
+    private boolean placeSingleLadder(BlockPos ladderPos, Direction facing) {
+        BlockState current = world.getBlockState(ladderPos);
+        if (!current.isAir()) {
+            return false;
+        }
+
+        BlockState ladder = Blocks.LADDER.getDefaultState().with(net.minecraft.block.LadderBlock.FACING, facing);
+        if (ladder.contains(Properties.WATERLOGGED)) {
+            ladder = ladder.with(Properties.WATERLOGGED, false);
+        }
+
+        if (!hasLadderSupport(ladderPos, facing)) {
+            return false;
+        }
+
+        world.setBlockState(ladderPos, ladder, 2);
+        return true;
+    }
+
+    private boolean hasLadderSupport(BlockPos ladderPos, Direction facing) {
+        BlockPos supportPos = ladderPos.offset(facing.getOpposite());
+        BlockState supportState = world.getBlockState(supportPos);
+        return supportState.isSideSolidFullSquare(world, supportPos, facing);
+    }
+
+    private Direction horizontalDir(BlockPos from, BlockPos to) {
+        int dx = to.getX() - from.getX();
+        int dz = to.getZ() - from.getZ();
+
+        if (Math.abs(dx) + Math.abs(dz) != 1) {
+            return null;
+        }
+        if (dx == 1) return Direction.EAST;
+        if (dx == -1) return Direction.WEST;
+        if (dz == 1) return Direction.SOUTH;
+        if (dz == -1) return Direction.NORTH;
+
+        return null;
     }
     private void placeRoom(
             RoomTemplate roomTemplate,
@@ -848,4 +1049,3 @@ public class RoomGenerator {
         return new Placement(origin, rotation);
     }
 }
-

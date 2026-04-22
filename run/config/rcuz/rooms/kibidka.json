@@ -1,0 +1,24 @@
+{
+  "id": "kibidka",
+  "weight": 0,
+  "tags": ["mediacraft"],
+  "minDistance": 0,
+  "maxDistance": -1,
+  "maxPerDimension": -1,
+  "mobSpawners": [],
+  "doors": [
+    {
+      "exit": false,
+      "entrance": true,
+      "id": 1,
+      "facing": "SOUTH",
+      "doorType": "DEFAULT",
+      "localPos": {
+        "x": 3,
+        "y": 1,
+        "z": 3
+      },
+      "continuationBoostByTags": []
+    }
+  ]
+}
