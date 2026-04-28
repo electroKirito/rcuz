@@ -1,11 +1,14 @@
 package net.bear.rcuz.gameWorld.rooms.gen;
 
 import net.bear.rcuz.RCUZ;
+import net.bear.rcuz.RCUZBlocks;
 import net.bear.rcuz.gameWorld.ConfigStructureLoader;
 import net.bear.rcuz.gameWorld.rooms.model.*;
+import net.bear.rcuz.gameWorld.util.WorldHelper;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
+import net.minecraft.entity.Entity;
 import net.minecraft.registry.Registries;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
@@ -23,17 +26,18 @@ import java.util.*;
 public class RoomGenerator {
 
 
-    /// ТУНЕЛЬЧИК
+    /// РўРЈРќР•Р›Р¬Р§РРљ
     private static final int CONNECT_MAX_FORWARD = 20;
     private static final int CONNECT_SEARCH_H = 10;
     private static final int CONNECT_SEARCH_V = 10;
     private static final int TUNNEL_RX = 4;
     private static final int TUNNEL_RY = 4;
     private static final int TUNNEL_RZ = 4;
-    /// КОНЕЦ ТУНЕЛЬЧИКА :(
+    /// РљРћРќР•Р¦ РўРЈРќР•Р›Р¬Р§РРљРђ :(
 
 
     private final Map<String, RoomTemplate> templatesById;
+    private final Map<String, List<MobSpawnEntry>> mobTagPresets;
     private final Random random;
     private final Map<String, Integer> usedCount = new HashMap<>();
     private final List<PlacedRoom> placedRooms = new ArrayList<>();
@@ -47,22 +51,30 @@ public class RoomGenerator {
     private static final int MAX_ENTRANCES_TO_TRY_PER_ROOM = 6;
 
     private final Map<Long, List<Bounds3i>> placedBoundsByChunk = new HashMap<>();
+    private final Set<BlockPos> archivedBPitMarkers = new HashSet<>();
 
 
     private final ServerWorld world;
 
     private static final int ACTIVATE_RADIUS = 100;
     private static final int ACTIVATE_RADIUS_SQ = ACTIVATE_RADIUS * ACTIVATE_RADIUS;
+    private static final boolean ENABLE_PITS = true;
+    private static final int PIT_MAX_DROP = 24;
+    private static final int PIT_MIN_RADIUS = 2;
+    private static final int PIT_MAX_RADIUS = 6;
 
-    public RoomGenerator(List<RoomTemplate> templates, Random random, ServerWorld world, ConfigStructureLoader configStructureLoader) {
+    public RoomGenerator(List<RoomTemplate> templates, Random random, ServerWorld world, ConfigStructureLoader configStructureLoader, Map<String, List<MobSpawnEntry>> mobTagPresets) {
         this.configStructureLoader = configStructureLoader;
         this.world = world;
         this.templatesById = new HashMap<>();
         this.random = random;
+        this.mobTagPresets = new HashMap<>();
+        this.mobTagPresets.putAll(mobTagPresets);
 
         for (RoomTemplate t : templates) {
             this.templatesById.put(t.id(), t);
         }
+
     }
 
     public List<PlacedRoom> getPlacedRooms() {
@@ -78,9 +90,9 @@ public class RoomGenerator {
         placedRooms.add(lobby);
         indexPlacedRoomBounds(computeBounds(origin, templateSize, BlockRotation.NONE));
 
-        frontier.add(new OpenSocket(origin.add(0, 1, 15), Dir.WEST, true, new ArrayList<>()));
-        frontier.add(new OpenSocket(origin.add(25, 1, 0), Dir.NORTH, true, new ArrayList<>()));
-        frontier.add(new OpenSocket(origin.add(32, 8, 3), Dir.EAST, true, new ArrayList<>()));
+        frontier.add(new OpenSocket(origin.add(0, 1, 15), Dir.WEST, true, DoorType.DEFAULT, false, new ArrayList<>(), new ArrayList<>()));
+        frontier.add(new OpenSocket(origin.add(25, 1, 0), Dir.NORTH, true, DoorType.DEFAULT, false, new ArrayList<>(), new ArrayList<>()));
+        frontier.add(new OpenSocket(origin.add(32, 8, 3), Dir.EAST, true, DoorType.DEFAULT, false, new ArrayList<>(), new ArrayList<>()));
     }
 
     public void start() {
@@ -95,27 +107,43 @@ public class RoomGenerator {
 
     private boolean tryGenerateAtSocket(OpenSocket socket) {
         List<RoomTemplate> candidates = new ArrayList<>(templatesById.values());
+        Map<RoomTemplate, Integer> effectiveWeights = new HashMap<>();
+
+        /// Filtering candidates
+        candidates.removeIf(roomTemplate -> !candidateFiltering(roomTemplate, socket));
+
+        candidates.removeIf(roomTemplate -> {
+            int boostedWeight = computeEffectiveWeight(roomTemplate, socket);
+            if (boostedWeight <= 0) {
+                return true;
+            }
+            effectiveWeights.put(roomTemplate, boostedWeight);
+            return false;
+        });
 
         if (tryResolveAdjacentSocket(socket)) {
             return true;
         }
 
-        if (Math.random() < 0.05)
-            if (tryConnectToNearbySocket(socket)) {
-                return true;
-            }
-
         int roomTryes = 0;
         while (!candidates.isEmpty() && roomTryes < MAX_ROOMS_TO_TRY_PER_SOCKET) {
             roomTryes++;
 
-            RoomTemplate room = pickRoomWeighted(candidates);
+            RoomTemplate room = pickRoomWeighted(candidates, effectiveWeights);
             if (room == null) break;
 
-            boolean placed = tryPlaceRoomVariantes(room, socket);
-            if (placed) return true;
+            PlacedRoomLittle placed = tryPlaceRoomVariantes(room, socket);
+            if (placed.placed()) {
+                openSocketSeal(socket);
+                usedCount.merge(room.id(), 1, Integer::sum);
+
+
+
+                return true;
+            }
 
             candidates.remove(room);
+            effectiveWeights.remove(room);
         }
 
         if (tryConnectToNearbySocket(socket)) {
@@ -126,29 +154,298 @@ public class RoomGenerator {
         return false;
     }
 
-    private boolean tryPlaceRoomVariantes(RoomTemplate room, OpenSocket socket) {
-        StructureTemplate template = configStructureLoader.get(room.id());
-        if (template == null) return false;
+    private void generateMobs(RoomTemplate room, BlockPos roomOrigin, Vec3i roomSize, BlockRotation roomRotation) {
+        if (room.mobSpawners() == null || room.mobSpawners().isEmpty()) {
+            return;
+        }
 
-        List<DoorSocket> entrances = getEntrances(room); /// Все входы
-        Collections.shuffle(entrances, new java.util.Random(random.nextLong())); /// Перемешиваем входы 😈
+        Bounds3i roomBounds = computeBounds(roomOrigin, roomSize, roomRotation);
+        List<Vec3d> roomSpawnPoints = collectRoomSpawnPoints(roomBounds);
+
+        for (RoomMobSpawner spawner : room.mobSpawners()) {
+            if (spawner == null || spawner.pool() == null || spawner.pool().isEmpty()) {
+                continue;
+            }
+
+            int rolls = Math.max(spawner.rolls(), 0);
+            for (int i = 0; i < rolls; i++) {
+                MobSpawnPoolEntry currentPull = pickMobSpawnPoolEntryWeighted(spawner.pool());
+                if (currentPull == null || currentPull.empty()) {
+                    continue;
+                }
+
+                List<MobSpawnEntry> spawnEntries = resolveSpawnEntries(currentPull, room);
+                if (spawnEntries.isEmpty()) {
+                    continue;
+                }
+
+                for (MobSpawnEntry entry : spawnEntries) {
+                    if (entry == null) {
+                        continue;
+                    }
+
+                    Vec3d pos = resolveSpawnPosition(spawner, roomOrigin, roomRotation, roomSpawnPoints);
+                    if (pos == null) {
+                        continue;
+                    }
+
+                    if (entry.id() == null) {
+                        continue;
+                    }
+
+                    int count = 1;
+                    if (entry.count() != null) {
+                        count = Math.max(entry.count().getRandCount(this.random), 0);
+                    }
+                    if (count <= 0) {
+                        continue;
+                    }
+
+                    spawnMobInRoom(entry, pos, count);
+                }
+            }
+        }
+    }
+
+    private List<MobSpawnEntry> resolveSpawnEntries(MobSpawnPoolEntry poolEntry, RoomTemplate room) {
+        List<MobSpawnEntry> result = new ArrayList<>();
+
+        String presetId = poolEntry.tagPreset();
+        if (presetId != null && !presetId.isBlank()) {
+            result.addAll(resolvePresetEntries(presetId, room));
+        }
+
+        if (poolEntry.spawn() != null) {
+            for (MobSpawnEntry entry : poolEntry.spawn()) {
+                if (entry != null) result.add(entry);
+            }
+        }
+
+        return result;
+    }
+
+    private List<MobSpawnEntry> resolvePresetEntries(String presetId, RoomTemplate room) {
+        if ("*".equals(presetId)) {
+            if (room.tags() == null || room.tags().isEmpty()) {
+                return List.of();
+            }
+
+            List<String> candidates = new ArrayList<>();
+            for (String tag : room.tags()) {
+                if (mobTagPresets.containsKey(tag)) {
+                    candidates.add(tag);
+                }
+            }
+            if (candidates.isEmpty()) {
+                return List.of();
+            }
+
+            String selectedTag = candidates.get(random.nextInt(candidates.size()));
+            List<MobSpawnEntry> preset = mobTagPresets.get(selectedTag);
+            return preset == null ? List.of() : preset;
+        }
+
+        List<MobSpawnEntry> preset = mobTagPresets.get(presetId);
+        return preset == null ? List.of() : preset;
+    }
+
+    private Vec3d resolveSpawnPosition(
+            RoomMobSpawner spawner,
+            BlockPos roomOrigin,
+            BlockRotation roomRotation,
+            List<Vec3d> roomSpawnPoints
+    ) {
+        if (spawner.mode() == MobSpawnMode.POSITION) {
+            if (spawner.pos() == null) {
+                return null;
+            }
+
+            IVec3 rotatedLocal = rotateLocalPos(spawner.pos(), roomRotation);
+            BlockPos base = roomOrigin.add(rotatedLocal.x(), rotatedLocal.y(), rotatedLocal.z());
+            if (!isValidSpawnBlock(base)) {
+                return null;
+            }
+            return Vec3d.ofBottomCenter(base);
+        }
+
+        if (roomSpawnPoints.isEmpty()) {
+            return null;
+        }
+        return roomSpawnPoints.get(random.nextInt(roomSpawnPoints.size()));
+    }
+
+    private List<Vec3d> collectRoomSpawnPoints(Bounds3i bounds) {
+        List<Vec3d> points = new ArrayList<>();
+        for (int x = bounds.minX; x <= bounds.maxX; x++) {
+            for (int y = bounds.minY; y <= bounds.maxY; y++) {
+                for (int z = bounds.minZ; z <= bounds.maxZ; z++) {
+                    BlockPos pos = new BlockPos(x, y, z);
+                    if (!isValidSpawnBlock(pos)) {
+                        continue;
+                    }
+                    points.add(Vec3d.ofBottomCenter(pos));
+                }
+            }
+        }
+        return points;
+    }
+
+    private boolean isValidSpawnBlock(BlockPos pos) {
+        BlockState feet = world.getBlockState(pos);
+        BlockState head = world.getBlockState(pos.up());
+        BlockState floor = world.getBlockState(pos.down());
+
+        if (!feet.isAir() || !head.isAir()) {
+            return false;
+        }
+        if (floor.isAir() || floor.getFluidState().isEmpty() == false) {
+            return false;
+        }
+        return floor.isSideSolidFullSquare(world, pos.down(), Direction.UP);
+    }
+
+    private void spawnMobInRoom(MobSpawnEntry entry, Vec3d position, int count) {
+        for (int m = 0; m < count; m++) {
+            Entity entity = Registries.ENTITY_TYPE.get(entry.id()).create(world);
+            if (entity == null) {
+                continue;
+            }
+            if (entry.tag() != null) {
+                entity.readNbt(entry.tag());
+            }
+            entity.setPosition(position);
+            world.spawnEntity(entity);
+        }
+    }
+
+    private MobSpawnPoolEntry pickMobSpawnPoolEntryWeighted(List<MobSpawnPoolEntry> poolEntries) {
+        int total = 0;
+        for (MobSpawnPoolEntry poolEntry : poolEntries) {
+            int weight = poolEntry.weight();
+            if (weight > 0) total += weight;
+        }
+        if (total <= 0) return null;
+
+        int roll = random.nextInt(total);
+        int acc = 0;
+        for (MobSpawnPoolEntry poolEntry : poolEntries) {
+            int weight = poolEntry.weight();
+            if (weight <= 0) continue;
+            acc += weight;
+            if (roll < acc) return poolEntry;
+        }
+        return null;
+    }
+
+    private int computeEffectiveWeight(RoomTemplate roomTemplate, OpenSocket socket) {
+        Set<String> roomTags = roomTemplate.tags() == null ? Set.of() : roomTemplate.tags();
+        List<ContinuationBoostByTag> boosts = socket.continuationBoostByTags();
+
+        int effectiveWeight = roomTemplate.weight();
+        boolean hasMatchingBoost = false;
+
+        if (boosts != null) {
+            for (ContinuationBoostByTag boost : boosts) {
+                if (boost == null || boost.tags() == null) {
+                    continue;
+                }
+                if (!roomTags.containsAll(boost.tags())) {
+                    continue;
+                }
+
+                hasMatchingBoost = true;
+                effectiveWeight = switch (boost.boostType()) {
+                    case ADD -> effectiveWeight + Math.round(boost.value());
+                    case SET -> Math.round(boost.value());
+                    case MULT -> Math.round(effectiveWeight * boost.value());
+                };
+            }
+        }
+
+        if (socket.onlyBoostedTags() && !hasMatchingBoost) {
+            return 0;
+        }
+
+        return Math.max(effectiveWeight, 0);
+    }
+
+    private boolean candidateFiltering(RoomTemplate roomTemplate, OpenSocket socket) {
+        boolean hasMatchingDoorType = false;
+        for (DoorSocket door : roomTemplate.doors()) {
+            if (!door.entrance()) continue;
+            if (door.doorType() == socket.doorType()) {
+                hasMatchingDoorType = true;
+                break;
+            }
+        }
+        if (!hasMatchingDoorType) return false;
+
+        int mxd = roomTemplate.maxDistance();
+        int mnd = roomTemplate.minDistance();
+
+        int mxy = roomTemplate.yMax();
+        int mny = roomTemplate.yMin();
+
+
+
+        int maxPerDim = roomTemplate.maxPerDimension();
+        Integer curPerDim = usedCount.get(roomTemplate.id());
+        if (curPerDim == null) curPerDim = 0;
+        boolean isFree = (maxPerDim < 0) || (curPerDim < maxPerDim);
+        Vec3d curPos = socket.worldPos().toCenterPos();
+        int curPosY = (int) curPos.getY();
+
+        int distSq = WorldHelper.getDificultDistanceSquared(curPos);
+
+        boolean meetsMin = (mnd <= 0) || (distSq >= mnd * mnd);
+        boolean meetsMax = (mxd == -1) || (distSq < mxd * mxd);
+        boolean yMax = (curPosY < mxy) || (mxy < -9999);
+        boolean yMin = (curPosY >= mny) || (mny < -9999);
+
+        return meetsMin && meetsMax && isFree && yMin && yMax;
+    }
+
+
+    private PlacedRoomLittle tryPlaceRoomVariantes(RoomTemplate room, OpenSocket socket) {
+        StructureTemplate template = configStructureLoader.get(room.id());
+        if (template == null) {
+            return new PlacedRoomLittle(null, null, false);
+        }
+
+        List<DoorSocket> entrances = getEntrances(room).stream()
+                .filter(door -> door.doorType() == socket.doorType())
+                .toList(); /// Entrances with matching door type
+        if (entrances.isEmpty()) {
+            return new PlacedRoomLittle(null, null, false);
+        }
+
+        List<DoorSocket> shuffledEntrances = new ArrayList<>(entrances);
+        Collections.shuffle(shuffledEntrances, new java.util.Random(random.nextLong()));
 
         int entrancesTryCount = 0;
-        for (DoorSocket doorSocket : entrances) {
+        for (DoorSocket doorSocket : shuffledEntrances) {
             if (entrancesTryCount++ >= MAX_ENTRANCES_TO_TRY_PER_ROOM) break;
 
             Placement placement = computePlacement(socket, doorSocket);
             if (!canPlaceRoomAt(template, placement.origin, placement.rotation)) continue;
 
             placeRoom(room, template, doorSocket, placement.origin, placement.rotation);
-            return true;
+            generateMobs(room, placement.origin, template.getSize(), placement.rotation);
+            return new PlacedRoomLittle(template.getSize(), placement.origin, true);
         }
 
-        return false;
+        return new PlacedRoomLittle(null, null, false);
     }
+
     private boolean tryConnectToNearbySocket(OpenSocket source) {
+        if (source.doorType() != DoorType.DEFAULT) {
+            return false;
+        }
+
         OpenSocket adjacent = findAdjacentOppositeSocket(source);
-        if (adjacent != null) {
+        if (adjacent != null && adjacent.doorType() == DoorType.DEFAULT) {
+            openSocketSeal(source);
+            openSocketSeal(adjacent);
             openTunnelMouth(source);
             openTunnelMouth(adjacent);
             frontier.remove(adjacent);
@@ -169,6 +466,8 @@ public class RoomGenerator {
         }
 
         carvePath(path);
+        openSocketSeal(source);
+        openSocketSeal(target);
         openTunnelMouth(source);
         openTunnelMouth(target);
         placeLaddersAlongPath(path, source.facing());
@@ -182,6 +481,8 @@ public class RoomGenerator {
         if (adjacent == null) {
             return false;
         }
+        openSocketSeal(source);
+        openSocketSeal(adjacent);
         openTunnelMouth(source);
         openTunnelMouth(adjacent);
         frontier.remove(adjacent);
@@ -213,6 +514,9 @@ public class RoomGenerator {
 
         for (OpenSocket candidate : frontier) {
             if (!candidate.entrance()) {
+                continue;
+            }
+            if (candidate.doorType() != DoorType.DEFAULT) {
                 continue;
             }
             if (candidate.facing() != requiredFacing) {
@@ -533,7 +837,14 @@ public class RoomGenerator {
                 .setIgnoreEntities(false);
 
         template.place(world, origin, origin, placementData, world.getRandom(), 2);
+        clearEntranceDoorSeal(origin, selectedEntrance, rotation);
         applyTemplateReplacements(roomTemplate, bounds);
+
+        Set<BlockPos> extraMarkersToClean = Collections.emptySet();
+        if (ENABLE_PITS) {
+            extraMarkersToClean = tryCreatePit(bounds);
+        }
+        cleanupPitMarkers(bounds, extraMarkersToClean);
 
         PlacedRoom placed = new PlacedRoom(
                 roomTemplate.id(),
@@ -554,6 +865,263 @@ public class RoomGenerator {
                 templateSize.getX(),
                 templateSize.getZ()
         );
+    }
+
+    private Set<BlockPos> tryCreatePit(Bounds3i roomBounds) {
+        List<BlockPos> aMarkers = collectMarkersInBounds(roomBounds, RCUZBlocks.A_PIT);
+        if (aMarkers.isEmpty()) {
+            return Collections.emptySet();
+        }
+
+        BlockPos center = aMarkers.get(random.nextInt(aMarkers.size()));
+        Set<BlockPos> aBlob = floodMarkerBlob(center, roomBounds, RCUZBlocks.A_PIT);
+        if (aBlob.isEmpty()) {
+            return Collections.emptySet();
+        }
+
+        Integer targetY = findNearestBLayerY(center, roomBounds);
+        if (targetY == null) {
+            return Collections.emptySet();
+        }
+
+        Set<BlockPos> bLayer = collectMarkersAtY(roomBounds, targetY, RCUZBlocks.B_PIT);
+        if (bLayer.isEmpty()) {
+            return Collections.emptySet();
+        }
+
+        int maxRadius = Math.min(PIT_MAX_RADIUS,
+                Math.min(computeMaxSupportedRadius(center, aBlob, center.getY()), computeMaxSupportedRadius(center, bLayer, targetY)));
+        if (maxRadius < PIT_MIN_RADIUS) {
+            return Collections.emptySet();
+        }
+
+        int radius = random.nextBetween(PIT_MIN_RADIUS, maxRadius);
+        Block wallBlock = pickPitWallBlock(center, roomBounds);
+        Set<BlockPos> usedBMarkers = new HashSet<>();
+
+        while (radius >= PIT_MIN_RADIUS) {
+            if (!maskFits(center, aBlob, center.getY(), radius)) {
+                radius--;
+                continue;
+            }
+            if (!maskFits(center, bLayer, targetY, radius)) {
+                radius--;
+                continue;
+            }
+
+            carvePitColumn(center, targetY, radius, wallBlock);
+            usedBMarkers.addAll(maskPoints(center, targetY, radius));
+            break;
+        }
+
+        return usedBMarkers;
+    }
+
+    private List<BlockPos> collectMarkersInBounds(Bounds3i bounds, Block marker) {
+        List<BlockPos> result = new ArrayList<>();
+        for (int x = bounds.minX; x <= bounds.maxX; x++) {
+            for (int y = bounds.minY; y <= bounds.maxY; y++) {
+                for (int z = bounds.minZ; z <= bounds.maxZ; z++) {
+                    BlockPos p = new BlockPos(x, y, z);
+                    if (world.getBlockState(p).getBlock() == marker) {
+                        result.add(p);
+                    }
+                }
+            }
+        }
+        return result;
+    }
+
+    private Set<BlockPos> collectMarkersAtY(Bounds3i bounds, int y, Block marker) {
+        Set<BlockPos> result = new HashSet<>();
+        if (marker == RCUZBlocks.B_PIT) {
+            for (BlockPos p : archivedBPitMarkers) {
+                if (p.getY() != y) continue;
+                if (p.getX() < bounds.minX || p.getX() > bounds.maxX) continue;
+                if (p.getZ() < bounds.minZ || p.getZ() > bounds.maxZ) continue;
+                result.add(p.toImmutable());
+            }
+        }
+        for (int x = bounds.minX; x <= bounds.maxX; x++) {
+            for (int z = bounds.minZ; z <= bounds.maxZ; z++) {
+                BlockPos p = new BlockPos(x, y, z);
+                if (world.getBlockState(p).getBlock() == marker) {
+                    result.add(p.toImmutable());
+                }
+            }
+        }
+        return result;
+    }
+
+    private Set<BlockPos> floodMarkerBlob(BlockPos start, Bounds3i bounds, Block marker) {
+        Set<BlockPos> visited = new HashSet<>();
+        ArrayDeque<BlockPos> queue = new ArrayDeque<>();
+
+        BlockPos startImm = start.toImmutable();
+        if (world.getBlockState(startImm).getBlock() != marker) {
+            return visited;
+        }
+
+        queue.add(startImm);
+        visited.add(startImm);
+
+        Direction[] dirs = new Direction[]{Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST};
+        while (!queue.isEmpty()) {
+            BlockPos cur = queue.pollFirst();
+            for (Direction dir : dirs) {
+                BlockPos next = cur.offset(dir).toImmutable();
+                if (next.getX() < bounds.minX || next.getX() > bounds.maxX) continue;
+                if (next.getY() < bounds.minY || next.getY() > bounds.maxY) continue;
+                if (next.getZ() < bounds.minZ || next.getZ() > bounds.maxZ) continue;
+                if (visited.contains(next)) continue;
+                if (world.getBlockState(next).getBlock() != marker) continue;
+
+                visited.add(next);
+                queue.addLast(next);
+            }
+        }
+
+        return visited;
+    }
+
+    private Integer findNearestBLayerY(BlockPos center, Bounds3i bounds) {
+        int minY = Math.max(bounds.minY - PIT_MAX_DROP, world.getBottomY());
+        for (int y = center.getY() - 1; y >= minY; y--) {
+            if (hasArchivedBMarkerAtY(bounds, y)) {
+                return y;
+            }
+        }
+        return null;
+    }
+
+    private boolean hasArchivedBMarkerAtY(Bounds3i bounds, int y) {
+        for (BlockPos p : archivedBPitMarkers) {
+            if (p.getY() != y) continue;
+            if (p.getX() < bounds.minX || p.getX() > bounds.maxX) continue;
+            if (p.getZ() < bounds.minZ || p.getZ() > bounds.maxZ) continue;
+            return true;
+        }
+        return false;
+    }
+
+    private int computeMaxSupportedRadius(BlockPos center, Set<BlockPos> markerSet, int y) {
+        int max = 0;
+        for (int r = PIT_MIN_RADIUS; r <= PIT_MAX_RADIUS; r++) {
+            if (!maskFits(center, markerSet, y, r)) {
+                break;
+            }
+            max = r;
+        }
+        return max;
+    }
+
+    private boolean maskFits(BlockPos center, Set<BlockPos> markerSet, int y, int radius) {
+        for (BlockPos p : maskPoints(center, y, radius)) {
+            if (!markerSet.contains(p)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private Set<BlockPos> maskPoints(BlockPos center, int y, int radius) {
+        Set<BlockPos> points = new HashSet<>();
+        for (int ox = -radius; ox <= radius; ox++) {
+            for (int oz = -radius; oz <= radius; oz++) {
+                if (isInsidePitFitMask(ox, oz, radius)) {
+                    points.add(new BlockPos(center.getX() + ox, y, center.getZ() + oz));
+                }
+            }
+        }
+        return points;
+    }
+
+    private boolean isInsidePitFitMask(int ox, int oz, int radius) {
+        double nx = ox / (double) radius;
+        double nz = oz / (double) radius;
+        return (nx * nx + nz * nz) <= 1.0D;
+    }
+
+    private boolean isInsidePitMask(int ox, int oz, int radius) {
+        double dx = ox + 0.5;
+        double dz = oz + 0.5;
+        double distSq = dx * dx + dz * dz;
+        double r = radius + 0.5;
+        return distSq <= r * r;
+    }
+
+    private void carvePitColumn(BlockPos center, int targetY, int radius, Block wallBlock) {
+        int fromY = Math.max(targetY + 1, world.getBottomY());
+        int toY = center.getY() - 1;
+        if (fromY > toY) return;
+
+        for (int y = toY; y >= fromY; y--) {
+            for (int ox = -(radius + 1); ox <= radius + 1; ox++) {
+                for (int oz = -(radius + 1); oz <= radius + 1; oz++) {
+                    BlockPos p = new BlockPos(center.getX() + ox, y, center.getZ() + oz);
+                    boolean inHole = isInsidePitMask(ox, oz, radius);
+                    boolean inShell = isInsidePitMask(ox, oz, radius + 1) && !inHole;
+
+                    if (inHole) {
+                        world.setBlockState(p, Blocks.AIR.getDefaultState(), 2);
+                    } else if (inShell) {
+                        world.setBlockState(p, wallBlock.getDefaultState(), 2);
+                    }
+                }
+            }
+        }
+    }
+
+    private Block pickPitWallBlock(BlockPos around, Bounds3i bounds) {
+        Map<Block, Integer> freq = new HashMap<>();
+        int sampleRadius = 4;
+
+        for (int x = Math.max(bounds.minX, around.getX() - sampleRadius); x <= Math.min(bounds.maxX, around.getX() + sampleRadius); x++) {
+            for (int y = Math.max(bounds.minY, around.getY() - sampleRadius); y <= Math.min(bounds.maxY, around.getY() + sampleRadius); y++) {
+                for (int z = Math.max(bounds.minZ, around.getZ() - sampleRadius); z <= Math.min(bounds.maxZ, around.getZ() + sampleRadius); z++) {
+                    BlockPos p = new BlockPos(x, y, z);
+                    BlockState st = world.getBlockState(p);
+                    Block b = st.getBlock();
+                    if (b == Blocks.AIR || b == RCUZBlocks.A_PIT || b == RCUZBlocks.B_PIT) {
+                        continue;
+                    }
+                    if (!st.isSolidBlock(world, p)) {
+                        continue;
+                    }
+                    freq.merge(b, 1, Integer::sum);
+                }
+            }
+        }
+
+        return freq.entrySet().stream()
+                .max(Map.Entry.comparingByValue())
+                .map(Map.Entry::getKey)
+                .orElse(Blocks.STONE);
+    }
+
+    private void cleanupPitMarkers(Bounds3i bounds, Set<BlockPos> extraMarkers) {
+        for (int x = bounds.minX; x <= bounds.maxX; x++) {
+            for (int y = bounds.minY; y <= bounds.maxY; y++) {
+                for (int z = bounds.minZ; z <= bounds.maxZ; z++) {
+                    BlockPos p = new BlockPos(x, y, z);
+                    Block b = world.getBlockState(p).getBlock();
+                    if (b == RCUZBlocks.A_PIT || b == RCUZBlocks.B_PIT) {
+                        if (b == RCUZBlocks.B_PIT) {
+                            archivedBPitMarkers.add(p.toImmutable());
+                        }
+                        world.setBlockState(p, Blocks.AIR.getDefaultState(), 2);
+                    }
+                }
+            }
+        }
+
+        for (BlockPos p : extraMarkers) {
+            archivedBPitMarkers.remove(p);
+            Block b = world.getBlockState(p).getBlock();
+            if (b == RCUZBlocks.A_PIT || b == RCUZBlocks.B_PIT) {
+                world.setBlockState(p, Blocks.AIR.getDefaultState(), 2);
+            }
+        }
     }
 
     private void applyTemplateReplacements(RoomTemplate roomTemplate, Bounds3i bounds) {
@@ -634,26 +1202,113 @@ public class RoomGenerator {
         return true;
     }
 
-    private void sealSocketWithBricks(OpenSocket socket) {
-        BlockPos p = socket.worldPos();
-        Map<Block, Integer> nearBlocks = new HashMap<>();
+    private void openSocketSeal(OpenSocket socket) {
+        List<BlockPos> sealed = socket.sealedBlocks();
+        if (sealed == null || sealed.isEmpty()) {
+            return;
+        }
+        for (BlockPos pos : sealed) {
+            world.setBlockState(pos, Blocks.AIR.getDefaultState(), 2);
+        }
+    }
 
-        for (BlockPos blockPos : BlockPos.iterate(
-                p.getX() - 1, p.getY() - 1, p.getZ() - 1,
-                p.getX() + 1, p.getY() + 2, p.getZ() + 1
-        )) {
-            Block curBlock = world.getBlockState(blockPos).getBlock();
-            if (curBlock == Blocks.AIR) continue;
-            nearBlocks.merge(curBlock, 1, Integer::sum);
+    private List<BlockPos> sealSocketWithBricks(OpenSocket socket) {
+        BlockPos start = socket.worldPos();
+        if (!isDoorSealBlock(world.getBlockState(start).getBlock())) {
+            return List.of();
         }
 
-        Block fill = nearBlocks.entrySet().stream()
-                .max(Map.Entry.comparingByValue())
-                .map(Map.Entry::getKey)
-                .orElse(Blocks.BRICKS);
+        Set<BlockPos> cluster = collectDoorSealCluster(start);
+        if (cluster.isEmpty()) {
+            return List.of();
+        }
 
-        world.setBlockState(p, fill.getDefaultState());
-        world.setBlockState(p.add(0,1,0), fill.getDefaultState());
+        Map<Block, Integer> nearBlocks = new HashMap<>();
+        for (BlockPos sealPos : cluster) {
+            for (int dx = -1; dx <= 1; dx++) {
+                for (int dy = -1; dy <= 1; dy++) {
+                    for (int dz = -1; dz <= 1; dz++) {
+                        if (dx == 0 && dy == 0 && dz == 0) continue;
+
+                        BlockPos neighbor = sealPos.add(dx, dy, dz);
+                        if (cluster.contains(neighbor)) continue;
+
+                        BlockState state = world.getBlockState(neighbor);
+                        Block block = state.getBlock();
+                        if (block == Blocks.AIR || block == RCUZBlocks.A_PIT || block == RCUZBlocks.B_PIT || block == RCUZBlocks.DOOR_SEAL || isDoorSealBlock(block)) {
+                            continue;
+                        }
+                        if (!state.isOpaqueFullCube(world, neighbor)) {
+                            continue;
+                        }
+
+                        nearBlocks.merge(block, 1, Integer::sum);
+                    }
+                }
+            }
+        }
+
+        int maxCount = nearBlocks.values().stream().mapToInt(v -> v).max().orElse(-1);
+        List<Block> bestCandidates = nearBlocks.entrySet().stream()
+                .filter(e -> e.getValue() == maxCount)
+                .map(Map.Entry::getKey)
+                .toList();
+
+        Block fill = bestCandidates.isEmpty()
+                ? Blocks.STONE
+                : bestCandidates.get(random.nextInt(bestCandidates.size()));
+
+        for (BlockPos sealPos : cluster) {
+            world.setBlockState(sealPos, fill.getDefaultState(), 2);
+        }
+        return new ArrayList<>(cluster);
+    }
+
+    private Set<BlockPos> collectDoorSealCluster(BlockPos start) {
+        Set<BlockPos> cluster = new HashSet<>();
+        ArrayDeque<BlockPos> queue = new ArrayDeque<>();
+        BlockPos root = start.toImmutable();
+
+        cluster.add(root);
+        queue.add(root);
+
+        while (!queue.isEmpty()) {
+            BlockPos cur = queue.pollFirst();
+
+            for (int dx = -1; dx <= 1; dx++) {
+                for (int dy = -1; dy <= 1; dy++) {
+                    for (int dz = -1; dz <= 1; dz++) {
+                        if (dx == 0 && dy == 0 && dz == 0) continue;
+
+                        BlockPos next = cur.add(dx, dy, dz).toImmutable();
+                        if (cluster.contains(next)) continue;
+
+                        if (!isDoorSealBlock(world.getBlockState(next).getBlock())) continue;
+                        cluster.add(next);
+                        queue.add(next);
+                    }
+                }
+            }
+        }
+
+        return cluster;
+    }
+
+    private void clearEntranceDoorSeal(BlockPos roomOrigin, DoorSocket selectedEntrance, BlockRotation rotation) {
+        IVec3 rotatedEntrance = rotateLocalPos(selectedEntrance.localPos(), rotation);
+        BlockPos entranceWorldPos = roomOrigin.add(rotatedEntrance.x(), rotatedEntrance.y(), rotatedEntrance.z());
+        if (!isDoorSealBlock(world.getBlockState(entranceWorldPos).getBlock())) {
+            return;
+        }
+
+        Set<BlockPos> cluster = collectDoorSealCluster(entranceWorldPos);
+        for (BlockPos pos : cluster) {
+            world.setBlockState(pos, Blocks.AIR.getDefaultState(), 2);
+        }
+    }
+
+    private boolean isDoorSealBlock(Block block) {
+        return Registries.BLOCK.getId(block).equals(new Identifier(RCUZ.MOD_ID, "door_seal"));
     }
 
     private boolean intersectsPlacedRooms(Bounds3i bounds) {
@@ -738,18 +1393,20 @@ public class RoomGenerator {
         return new Bounds3i(minBx, minBy, minBz, maxBx, maxBy, maxBz);
     }
 
-    private RoomTemplate pickRoomWeighted(List<RoomTemplate> rooms) {
+    private RoomTemplate pickRoomWeighted(List<RoomTemplate> rooms, Map<RoomTemplate, Integer> effectiveWeights) {
         int total = 0;
         for (RoomTemplate r : rooms) {
-            if (r.weight() > 0) total += r.weight();
+            int weight = effectiveWeights.getOrDefault(r, r.weight());
+            if (weight > 0) total += weight;
         }
         if (total <= 0) return null;
 
         int roll = random.nextInt(total);
         int acc = 0;
         for (RoomTemplate r : rooms) {
-            if (r.weight() <= 0) continue;
-            acc += r.weight();
+            int weight = effectiveWeights.getOrDefault(r, r.weight());
+            if (weight <= 0) continue;
+            acc += weight;
             if (roll < acc) return r;
         }
         return null;
@@ -763,7 +1420,7 @@ public class RoomGenerator {
             return false;
         }
 
-        DoorSocket selectedEntrance = entrances.get(random.nextInt((int) entrances.stream().filter(DoorSocket::entrance).count())); ///Я сделал фильтр чтоб не выбиралась дверь, которая не может быть входом
+        DoorSocket selectedEntrance = entrances.get(random.nextInt((int) entrances.stream().filter(DoorSocket::entrance).count())); ///РЇ СЃРґРµР»Р°Р» С„РёР»СЊС‚СЂ С‡С‚РѕР± РЅРµ РІС‹Р±РёСЂР°Р»Р°СЃСЊ РґРІРµСЂСЊ, РєРѕС‚РѕСЂР°СЏ РЅРµ РјРѕР¶РµС‚ Р±С‹С‚СЊ РІС…РѕРґРѕРј
 //        Identifier templateId = new Identifier("rcuz", roomTemplate.id());
 //        Optional<StructureTemplate> optionalStructureTemplate = world.getStructureTemplateManager().getTemplate(templateId);
 
@@ -779,7 +1436,7 @@ public class RoomGenerator {
         }
 
 
-        ///  Большой ад с ротацией блоков
+        ///  Р‘РѕР»СЊС€РѕР№ Р°Рґ СЃ СЂРѕС‚Р°С†РёРµР№ Р±Р»РѕРєРѕРІ
         BlockRotation rotation = getRotationToConnect(selectedEntrance.facing(), openSocket.facing());
         Vec3i templateSize = template.getSize();
         IVec3 rotatedEntryLocalPos = rotateLocalPos(
@@ -839,7 +1496,7 @@ public class RoomGenerator {
     public RoomTemplate getRandomRoomTemplete() {
 
         if (RoomLoader.totalWitght <= 0) {
-            throw new Error("РС‚РѕРіРѕРІРѕРµ РІРµСЃРѕРІРѕРµ С‡РёСЃР»Рѕ РєРѕРјРЅР°С‚ СЂР°РІРЅРѕРµ 0! РСЃРїСЂР°РІСЊ :<");
+            throw new Error("Р ВРЎвЂљР С•Р С–Р С•Р Р†Р С•Р Вµ Р Р†Р ВµРЎРѓР С•Р Р†Р С•Р Вµ РЎвЂЎР С‘РЎРѓР В»Р С• Р С”Р С•Р СР Р…Р В°РЎвЂљ РЎР‚Р В°Р Р†Р Р…Р С•Р Вµ 0! Р ВРЎРѓР С—РЎР‚Р В°Р Р†РЎРЉ :<");
         }
 
         int roll = random.nextInt(RoomLoader.totalWitght);
@@ -851,7 +1508,7 @@ public class RoomGenerator {
             if (roll < acc) return roomTemplate;
         }
 
-        throw new Error("Huh? СЌС‚Рѕ РїРѕСЃР»РµРґРЅСЏСЏ СЃС‚СЂРѕРєР° РІ RoomGenerator.java.. РїРѕРёРґРµРё РѕРЅР° РЅРµ РјРѕР¶РµС‚ Р±С‹С‚СЊ РІС‹Р·РІР°РЅР°");
+        throw new Error("Huh? РЎРЊРЎвЂљР С• Р С—Р С•РЎРѓР В»Р ВµР Т‘Р Р…РЎРЏРЎРЏ РЎРѓРЎвЂљРЎР‚Р С•Р С”Р В° Р Р† RoomGenerator.java.. Р С—Р С•Р С‘Р Т‘Р ВµР С‘ Р С•Р Р…Р В° Р Р…Р Вµ Р СР С•Р В¶Р ВµРЎвЂљ Р В±РЎвЂ№РЎвЂљРЎРЉ Р Р†РЎвЂ№Р В·Р Р†Р В°Р Р…Р В°");
     }
 
     private OpenSocket pollActiveSocket() {
@@ -913,11 +1570,24 @@ public class RoomGenerator {
             );
             Dir doorWorldFacing = rotateDir(door.facing(), rotation);
 
-            frontier.addLast(new OpenSocket(
+            OpenSocket newSocket = new OpenSocket(
                     doorWorldPos,
                     doorWorldFacing,
                     door.entrance(),
-                    door.continuationBoostByTags()
+                    door.doorType(),
+                    door.onlyBoostedTags(),
+                    door.continuationBoostByTags(),
+                    new ArrayList<>()
+            );
+            List<BlockPos> sealedBlocks = sealSocketWithBricks(newSocket);
+            frontier.addLast(new OpenSocket(
+                    newSocket.worldPos(),
+                    newSocket.facing(),
+                    newSocket.entrance(),
+                    newSocket.doorType(),
+                    newSocket.onlyBoostedTags(),
+                    newSocket.continuationBoostByTags(),
+                    sealedBlocks
             ));
         }
     }
@@ -1049,3 +1719,5 @@ public class RoomGenerator {
         return new Placement(origin, rotation);
     }
 }
+
+

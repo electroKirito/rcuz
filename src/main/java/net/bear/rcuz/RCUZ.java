@@ -25,17 +25,32 @@ public class RCUZ implements ModInitializer {
                                         .getConfigDir()
                                         .resolve("rcuz")
                                         .resolve("rooms");
+    public static final Path mobTagPresetsDir = FabricLoader.getInstance()
+            .getConfigDir()
+            .resolve("rcuz")
+            .resolve("mobTagPresets");
+    public static final Path rulesDir = FabricLoader.getInstance()
+            .getConfigDir()
+            .resolve("rcuz")
+            .resolve("rules");
+    public static final Path gameWorldRulesFile = rulesDir.resolve("gameWorld.json");
 
 	@Override
 	public void onInitialize() {
         try {
+            Files.createDirectories(structureDir);
             Files.createDirectories(roomDir);
+            Files.createDirectories(mobTagPresetsDir);
+            Files.createDirectories(rulesDir);
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
 
+
+        RCUZBlocks.init();
         LOGGER.info("RCUZ HERE!!!!!!");
         CommandRegistry.start();
+
 
 //        ServerTickEvents.END_SERVER_TICK.register(minecraftServer -> {
 //            for (GameWorld gameWorld : GameWorld.gameWorldList) {

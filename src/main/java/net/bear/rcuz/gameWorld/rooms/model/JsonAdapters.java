@@ -17,7 +17,8 @@ public class JsonAdapters {
     public static class IdentifierJsonAdapter implements JsonDeserializer<Identifier> {
         @Override
         public Identifier deserialize(JsonElement jsonElement, Type type, JsonDeserializationContext jsonDeserializationContext) throws JsonParseException {
-            return Identifier.tryParse(jsonElement.toString());
+            String raw = jsonElement.isJsonPrimitive() ? jsonElement.getAsString() : jsonElement.toString();
+            return Identifier.tryParse(raw);
         }
     }
 
@@ -26,7 +27,8 @@ public class JsonAdapters {
         @Override
         public NbtCompound deserialize(JsonElement jsonElement, Type type, JsonDeserializationContext jsonDeserializationContext) throws JsonParseException {
             try {
-                return StringNbtReader.parse(jsonElement.toString());
+                String raw = jsonElement.isJsonPrimitive() ? jsonElement.getAsString() : jsonElement.toString();
+                return StringNbtReader.parse(raw);
             } catch (CommandSyntaxException e) {
                 throw new RuntimeException(e);
             }

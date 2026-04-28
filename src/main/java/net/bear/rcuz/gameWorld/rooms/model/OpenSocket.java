@@ -8,5 +8,8 @@ public record OpenSocket(
         BlockPos worldPos,
         Dir facing,
         boolean entrance,
-        List<ContinuationBoostByTag> continuationBoostByTags
+        DoorType doorType,
+        boolean onlyBoostedTags,
+        List<ContinuationBoostByTag> continuationBoostByTags,
+        List<BlockPos> sealedBlocks
 ) {}

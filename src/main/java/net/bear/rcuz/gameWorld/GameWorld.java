@@ -2,8 +2,10 @@ package net.bear.rcuz.gameWorld;
 
 import net.bear.rcuz.RCUZ;
 import net.bear.rcuz.gameWorld.chunkGenerator.EmptyChunkGenerator;
+import net.bear.rcuz.gameWorld.rooms.gen.MobLoader;
 import net.bear.rcuz.gameWorld.rooms.gen.RoomGenerator;
 import net.bear.rcuz.gameWorld.rooms.gen.RoomLoader;
+import net.bear.rcuz.gameWorld.rooms.model.MobSpawnEntry;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.structure.StructurePlacementData;
@@ -15,6 +17,7 @@ import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.Vec3i;
 import net.minecraft.util.math.random.Random;
+import net.minecraft.world.GameRules;
 import net.minecraft.world.World;
 import net.minecraft.world.biome.source.BiomeSource;
 import net.minecraft.world.dimension.DimensionTypes;
@@ -39,11 +42,12 @@ public class GameWorld {
 
     public GameWorld(MinecraftServer server, String name) throws IOException {
 
-        this.worldId = MathHelper.nextInt(Objects.requireNonNull(server.getWorld(World.OVERWORLD)).getRandom(), 10000, 99999);
+        this.worldId = MathHelper.nextInt(Objects.requireNonNull(server.getWorld(World.OVERWORLD)).getRandom(), 1000000000, Integer.MAX_VALUE - 10);
         this.server = server;
         this.createWorld();
         structureLoader.reload(server);
-        roomGenerator = new RoomGenerator(new RoomLoader().loadAll(), Random.create(), world, structureLoader);
+        Map<String, List<MobSpawnEntry>> mobTagPresets = new MobLoader().loadAll();
+        roomGenerator = new RoomGenerator(new RoomLoader().loadAll(), Random.create(), world, structureLoader, mobTagPresets);
         logCount = 0;
         this.setDisplayName(name);
         this.placeLobby();
@@ -66,10 +70,46 @@ public class GameWorld {
         try {
             world = worldHandle.asWorld();
             RCUZ.LOGGER.info("after asWorld");
-
+            applyWorldRulesFromConfig();
         } catch (Throwable e) {
             RCUZ.LOGGER.error("createWorld failed", e);
-            throw e;
+            throw new RuntimeException(e);
+        }
+    }
+
+    private void applyWorldRulesFromConfig() throws IOException {
+        GameWorldRulesLoader loader = new GameWorldRulesLoader();
+        Map<String, String> rules = loader.loadAll(world.getGameRules());
+        if (rules.isEmpty()) {
+            return;
+        }
+
+        GameRules worldRules = world.getGameRules();
+        Map<String, GameRules.Key<?>> keys = loader.collectRuleKeys();
+
+        for (Map.Entry<String, String> entry : rules.entrySet()) {
+            String rule = entry.getKey();
+            String value = entry.getValue();
+            if (rule == null || rule.isBlank() || value == null || value.isBlank()) {
+                continue;
+            }
+
+            GameRules.Key<?> key = keys.get(rule);
+            if (key == null) {
+                RCUZ.LOGGER.warn("Unknown gamerule '{}' in {}", rule, RCUZ.gameWorldRulesFile);
+                continue;
+            }
+
+            GameRules.Rule<?> targetRule = worldRules.get(key);
+            try {
+                if (targetRule instanceof GameRules.BooleanRule booleanRule) {
+                    booleanRule.set(Boolean.parseBoolean(value), server);
+                } else if (targetRule instanceof GameRules.IntRule intRule) {
+                    intRule.set(Integer.parseInt(value), server);
+                }
+            } catch (Exception ex) {
+                RCUZ.LOGGER.warn("Failed to apply gamerule '{}'='{}': {}", rule, value, ex.getMessage());
+            }
         }
     }
 

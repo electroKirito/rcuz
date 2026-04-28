@@ -1,10 +1,12 @@
 {
   "id": "upanddown",
   "weight": 500,
-  "tags": ["medialcraft"],
+  "tags": ["medialcraft", "double_floor"],
   "minDistance": 0,
   "maxDistance": -1,
   "maxPerDimension": -1,
+  "yMax": -99999999,
+  "yMin": -99999999,
   "mobSpawners": [],
   "doors": [
     {
@@ -18,7 +20,9 @@
         "x": 2,
         "z": 0
       },
-      "continuationBoostByTags": []
+      "continuationBoostByTags": [
+        {"tags": ["medialcraft", "double_floor"], "boostType":  "SET", "value":  0}
+      ]
     },
     {
       "exit": false,
@@ -31,7 +35,9 @@
         "y": 4,
         "z": 15
       },
-      "continuationBoostByTags": []
+      "continuationBoostByTags": [
+        {"tags": ["medialcraft", "double_floor"], "boostType":  "SET", "value":  0}
+      ]
     },
     {
       "exit": true,
@@ -44,7 +50,9 @@
         "y": 7,
         "z": 0
       },
-      "continuationBoostByTags": []
+      "continuationBoostByTags": [
+        {"tags": ["medialcraft", "double_floor"], "boostType":  "SET", "value":  0}
+      ]
     }
   ]
 }

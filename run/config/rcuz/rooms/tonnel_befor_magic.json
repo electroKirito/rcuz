@@ -1,0 +1,43 @@
+{
+  "id": "tonnel_befor_magic",
+  "weight": 3,
+  "tags": ["medialcraft", "magic"],
+  "minDistance": 200,
+  "maxDistance": -1,
+  "maxPerDimension": -1,
+  "yMax": -99999999,
+  "yMin": -99999999,
+  "mobSpawners": [],
+  "doors": [
+    {
+      "exit": false,
+      "entrance": true,
+      "id": 1,
+      "facing": "NORTH",
+      "doorType": "DEFAULT",
+      "localPos": {
+        "x": 4,
+        "y": 1,
+        "z": 0
+      },
+      "onlyBoostedTags": false,
+      "continuationBoostByTags": []
+    },
+    {
+      "exit": true,
+      "entrance": false,
+      "id": 2,
+      "facing": "SOUTH",
+      "doorType": "DEFAULT",
+      "localPos": {
+        "x": 4,
+        "y": 1,
+        "z": 64
+      },
+      "onlyBoostedTags": true,
+      "continuationBoostByTags": [
+        {"tags": ["full_black", "magic"], "boostType":  "ADD", "value":  1}
+      ]
+    }
+  ]
+}

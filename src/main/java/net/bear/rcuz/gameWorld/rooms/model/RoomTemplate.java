@@ -9,8 +9,30 @@ public record RoomTemplate(
         int maxPerDimension, /// -1 = без лимита
         int maxDistance,
         int minDistance,
+        int yMax,
+        int yMin,
         Set<String> tags,
-        List<RoomMobSpawners> mobSpawners,
+        List<RoomMobSpawner> mobSpawners,
         List<DoorSocket> doors,
         List<ReplaceRule> replacements
-) {}
+) {
+    /**
+     * Создает копию шаблона с измененным весом.
+     */
+    public RoomTemplate withWeight(int newWeight) {
+        return new RoomTemplate(
+                this.id,
+                newWeight,
+                this.maxPerDimension,
+                this.maxDistance,
+                this.minDistance,
+                this.yMax,
+                this.yMin,
+                this.tags,
+                this.mobSpawners,
+                this.doors,
+                this.replacements
+        );
+    }
+
+}

@@ -9,5 +9,6 @@ public record DoorSocket(
         boolean exit,
         boolean entrance,
         DoorType doorType,
+        boolean onlyBoostedTags,
         List<ContinuationBoostByTag> continuationBoostByTags
 ) {}

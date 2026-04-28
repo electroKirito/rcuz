@@ -1,10 +1,12 @@
 {
   "id": "kibidka",
   "weight": 0,
-  "tags": ["mediacraft"],
+  "tags": ["medialcraft"],
   "minDistance": 0,
   "maxDistance": -1,
   "maxPerDimension": -1,
+  "yMax": -99999999,
+  "yMin": -99999999,
   "mobSpawners": [],
   "doors": [
     {
@@ -18,6 +20,7 @@
         "y": 1,
         "z": 3
       },
+      "onlyBoostedTags": false,
       "continuationBoostByTags": []
     }
   ]

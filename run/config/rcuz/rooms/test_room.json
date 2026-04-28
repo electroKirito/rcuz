@@ -1,14 +1,46 @@
 {
   "id": "test_room",
   "weight": 1000,
-  "tags": ["stone"],
+  "tags": ["stone", "medialcraft"],
   "minDistance": 0,
   "maxDistance": -1,
   "maxPerDimension": -1,
-  "mobSpawners": [],
+  "yMax": -99999999,
+  "yMin": -99999999,
+  "mobSpawners": [
+    {
+      "mode": "ROOM",
+      "rolls": 2,
+      "pool": [
+        {
+          "weight":  100,
+          "tagPreset": "*",
+          "spawn": [
+            {
+              "id": "minecraft:pig",
+              "count": {"min":  1, "max":  1}
+            }
+          ]
+        },
+        {
+          "weight": 10,
+          "spawn": [
+            {
+              "id": "minecraft:slime",
+              "count": {"min":  1, "max": 1}
+            }
+          ]
+        }
+      ]
+    }
+  ],
   "replacements": [
-    {"form":  "minecraft:cobblestone", "to":  "minecraft:mossy_cobblestone",
+    {"from":  "minecraft:cobblestone", "to":  "minecraft:mossy_cobblestone",
       "chance": 0.2
+    },
+    {
+      "from":  "minecraft:cobblestone", "to":  "minecraft:stone_bricks",
+      "chance": 0.6
     }
   ],
   "doors": [
